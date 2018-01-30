@@ -1,0 +1,496 @@
+---
+title: "Using DEEP LEARNING WITH KERAS TO PREDICT CUSTOMER CHURN in IBM Watson Telco Dataset"
+output: html_notebook
+---
+Customer churn refers to the situation when a customer ends their relationship with a company, and it's a costly problem. Customers are the fuel that powers a business. Loss of customers impacts sales. Further, it's much more difficult and costly to gain new customers than it is to retain existing customers. As a result, organizations need to focus on reducing customer churn.
+
+The good news is that machine learning can help. For many businesses that offer subscription based services, it's critical to both predict customer churn and explain what features relate to customer churn. Older techniques such as logistic regression can be less accurate than newer techniques such as deep learning, which is why this report is going to model an ANN in R with the keras package.
+
+The data is from https://www.ibm.com/communities/analytics/watson-analytics-blog/predictive-insights-in-the-telco-customer-churn-data-set/. This data set provides info to predict behavior to retain customers. We can analyze all relevant customer data and develop focused customer retention programs.
+A telecommunications company is concerned about the number of customers leaving their landline business for cable competitors. They need to understand who is leaving. Imagine that you're an analyst at this company and you have to find out who is leaving and why.
+The data set includes information about:
+- Customers who left within the last month - the column is called Churn
+- Services that each customer has signed up for - phone, multiple lines, internet, online security, online backup, device protection, tech support, and streaming TV and movies
+- Customer account information - how long they've been a customer, contract, payment method, paperless billing, monthly charges, and total charges
+- Demographic info about customers - gender, age range, and if they have partners and dependents
+
+1. Install required packages
+
+We use the following libraries in this tutorial:
+
+- keras: Library that ports Keras from Python enabling deep learning in R. Visit the documentation for more information.
+- lime: Used to explain the predictions of black box classifiers. Deep Learning falls into this category.
+- tidyquant: Loads the tidyverse (dplyr, ggplot2, etc) and has nice visualization functions with theme_tq(). Visit the tidyquant documentation and the tidyverse documentation for more information on the individual packages.
+- rsample: New package for generating resamples. Visit the documentation for more information.
+- recipes: New package for preprocessing machine learning data sets. Visit the documentation for more information.
+- yardstick: Tidy methods for measuring model performance. Visit the GitHub Page for more information.
+- corrr: Tidy methods for correlation. Visit the GitHub Page for more information.
+
+```{r}
+pkgs <- c("keras", "lime", "tidyquant", "rsample", "recipes", "yardstick", "corrr")
+install.packages(pkgs)
+```
+
+```{r}
+# Load libraries
+library(keras)
+library(lime)
+library(tidyquant)
+library(rsample)
+library(recipes)
+library(yardstick)
+library(corrr)
+```
+```{r}
+# Install Keras if you have not installed before
+install_keras()
+```
+```{r}
+# Import data
+setwd("D:/Projects/Data_science/churn analysis")
+churn_data_raw <- read_csv("WA_Fn-UseC_-Telco-Customer-Churn.csv")
+glimpse(churn_data_raw)
+```
+
+The raw data contains 7043 rows (customers) and 21 columns (features). The "Churn" column is our target.
+
+Use sapply to check the number if missing values in each columns
+
+```{r}
+sapply(churn_data_raw, function(x) sum(is.na(x)))
+```
+Data columns and rows pruning:
+-The "customerID" column is a unique identifier for each observation that isn't needed for modeling. We can de-select this column.
+-11 missing values in "TotalCharges" columns needed to be removed.
+perform the cleaning operation with one tidyverse pipe (%>%) chain.
+
+```{r}
+# Remove unnecessary data
+churn_data_tbl <- churn_data_raw %>%
+    select(-customerID) %>%
+    drop_na() %>%
+    select(Churn, everything())
+glimpse(churn_data_tbl)
+```
+Bar plots of categorical variables
+```{r}
+p1 <- ggplot(churn_data_tbl, aes(x=gender)) + ggtitle("Gender") + xlab("Gender") +
+  geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) + ylab("Percentage") + coord_flip()
+p2 <- ggplot(churn_data_tbl, aes(x=SeniorCitizen)) + ggtitle("Senior Citizen") + xlab("Senior Citizen") + 
+  geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) + ylab("Percentage") + coord_flip() 
+p3 <- ggplot(churn_data_tbl, aes(x=Partner)) + ggtitle("Partner") + xlab("Partner") + 
+  geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) + ylab("Percentage") + coord_flip()
+p4 <- ggplot(churn_data_tbl, aes(x=Dependents)) + ggtitle("Dependents") + xlab("Dependents") +
+  geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) + ylab("Percentage") + coord_flip()
+
+install.packages("gridExtra")
+
+library(gridExtra)
+library(grid)
+library(ggplot2)
+library(lattice)
+
+p5 <- ggplot(churn_data_tbl, aes(x=PhoneService)) + ggtitle("Phone Service") + xlab("Phone Service") +
+  geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) + ylab("Percentage") + coord_flip() 
+p6 <- ggplot(churn_data_tbl, aes(x=MultipleLines)) + ggtitle("Multiple Lines") + xlab("Multiple Lines") + 
+  geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) + ylab("Percentage") + coord_flip() 
+p7 <- ggplot(churn_data_tbl, aes(x=InternetService)) + ggtitle("Internet Service") + xlab("Internet Service") + 
+  geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) + ylab("Percentage") + coord_flip() 
+p8 <- ggplot(churn_data_tbl, aes(x=OnlineSecurity)) + ggtitle("Online Security") + xlab("Online Security") +
+  geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) + ylab("Percentage") + coord_flip() 
+
+p9 <- ggplot(churn_data_tbl, aes(x=OnlineBackup)) + ggtitle("Online Backup") + xlab("Online Backup") +
+  geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) + ylab("Percentage") + coord_flip()
+p10 <- ggplot(churn_data_tbl, aes(x=DeviceProtection)) + ggtitle("Device Protection") + xlab("Device Protection") + 
+  geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) + ylab("Percentage") + coord_flip() 
+p11 <- ggplot(churn_data_tbl, aes(x=TechSupport)) + ggtitle("Tech Support") + xlab("Tech Support") + 
+  geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) + ylab("Percentage") + coord_flip() 
+p12 <- ggplot(churn_data_tbl, aes(x=StreamingTV)) + ggtitle("Streaming TV") + xlab("Streaming TV") +
+  geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) + ylab("Percentage") + coord_flip() 
+
+p13 <- ggplot(churn_data_tbl, aes(x=StreamingMovies)) + ggtitle("Streaming Movies") + xlab("Streaming Movies") +
+  geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) + ylab("Percentage") + coord_flip() + theme_minimal()
+p14 <- ggplot(churn_data_tbl, aes(x=Contract)) + ggtitle("Contract") + xlab("Contract") + 
+  geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) + ylab("Percentage") + coord_flip() + theme_minimal()
+p15 <- ggplot(churn_data_tbl, aes(x=PaperlessBilling)) + ggtitle("Paperless Billing") + xlab("Paperless Billing") + 
+  geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) + ylab("Percentage") + coord_flip() + theme_minimal()
+p16 <- ggplot(churn_data_tbl, aes(x=PaymentMethod)) + ggtitle("Payment Method") + xlab("Payment Method") +
+  geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) + ylab("Percentage") + coord_flip() + theme_minimal()
+p17 <- ggplot(churn_data_tbl, aes(x=tenure)) + ggtitle("Tenure Group") + xlab("Tenure Group") +
+  geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) + ylab("Percentage") + coord_flip() + theme_minimal()
+
+
+grid.arrange(p1, p2, p3, p4, ncol=2)
+
+```
+```{r}
+grid.arrange(p5, p6, p7, p8, ncol=2)
+
+```
+```{r}
+grid.arrange(p9, p10, p11, p12, ncol=2)
+
+```
+```{r}
+grid.arrange(p13, p14, p15, p16, p17, ncol=2)
+```
+All of the categorical variables seem to have a reasonably broad distribution, therefore, all of them will be kept for the further analysis.
+
+SPLIT INTO TRAIN/TEST SETS
+```{r}
+# Split test/training sets
+set.seed(100)
+train_test_split <- initial_split(churn_data_tbl, prop = 0.8)
+train_test_split
+```
+# retrieve training and testing sets using training() and testing() functions.
+```{r}
+# Retrieve train and test sets
+train_tbl <- training(train_test_split)
+test_tbl  <- testing(train_test_split) 
+```
+
+
+Based on the data, feature transformation are needed:
+1. DISCRETIZE THE "TENURE" FEATURE into groups and split into six cohorts that divide up the user base by tenure in roughly one year (12 month) increments
+2. TRANSFORM THE "TOTALCHARGES" FEATURE: do a log transform and make it more normally distrubuted.
+```{r}
+# Determine if log transformation improves correlation 
+# between TotalCharges and Churn
+train_tbl %>%
+    select(Churn, TotalCharges) %>%
+    mutate(
+        Churn = Churn %>% as.factor() %>% as.numeric(),
+        LogTotalCharges = log(TotalCharges)
+        ) %>%
+    correlate() %>%
+    focus(Churn) %>%
+    fashion()
+```
+Log transform of total charges increase correlations with churn.
+
+3. ONE-HOT ENCODING for Gender, Contract, Internet Service, Multiple Lines, and Payment Method.
+
+4. FEATURE SCALING: centered and scaled data for ANN, and other ML algorithms.
+
+PREPROCESSING WITH RECIPES R package
+```{r}
+# Create recipe
+rec_obj <- recipe(Churn ~ ., data = train_tbl) %>%
+    step_discretize(tenure, options = list(cuts = 6)) %>%
+    step_log(TotalCharges) %>%
+    step_dummy(all_nominal(), -all_outcomes()) %>%
+    step_center(all_predictors(), -all_outcomes()) %>%
+    step_scale(all_predictors(), -all_outcomes()) %>%
+    prep(data = train_tbl)
+```
+
+```{r}
+# Print the recipe object
+rec_obj
+```
+
+Processes the data following recipe steps uisng bake()
+
+```{r}
+# Predictors
+x_train_tbl <- bake(rec_obj, newdata = train_tbl)
+x_test_tbl  <- bake(rec_obj, newdata = test_tbl)
+
+glimpse(x_train_tbl)
+```
+```{r}
+glimpse(x_test_tbl)
+```
+
+```{r}
+# Response variables for training and testing sets
+y_train_vec <- ifelse(pull(train_tbl, Churn) == "Yes", 1, 0)
+y_test_vec  <- ifelse(pull(test_tbl, Churn) == "Yes", 1, 0)
+```
+```{r}
+# Remove target variables Churn from training/test data.
+x_train_tbl$Churn = NULL
+x_test_tbl$Churn = NULL
+```
+
+BUILDING A DEEP LEARNING MODEL USING Keras MLP
+
+```{r}
+# Building our Artificial Neural Network
+model_keras <- keras_model_sequential() #Initialize a sequential model
+
+model_keras %>% 
+    # First hidden layer
+    layer_dense(
+        units              = 16, 
+        kernel_initializer = "uniform", 
+        activation         = "relu", 
+        input_shape        = ncol(x_train_tbl)) %>% 
+    # Dropout to prevent overfitting
+    layer_dropout(rate = 0.1) %>%
+    # Second hidden layer
+    layer_dense(
+        units              = 16, 
+        kernel_initializer = "uniform", 
+        activation         = "relu") %>% 
+    # Dropout to prevent overfitting
+    layer_dropout(rate = 0.1) %>%
+    # Output layer
+    layer_dense(
+        units              = 1, 
+        kernel_initializer = "uniform", 
+        activation         = "sigmoid") %>% 
+    # Compile ANN
+    compile(
+        optimizer = 'adam',
+        loss      = 'binary_crossentropy',
+        metrics   = c('accuracy')
+    )
+
+model_keras
+```
+```{r echo=TRUE, warning=FALSE}
+# Fit the keras model to the training data
+fit_keras <- fit(
+    object           = model_keras, 
+    x                = as.matrix(x_train_tbl), 
+    y                = y_train_vec,
+    batch_size       = 50, 
+    epochs           = 35,
+    validation_split = 0.30
+    )
+```
+
+```{r warning=FALSE}
+# Print the final model
+fit_keras
+```
+
+visualize the Keras training history using the plot() function
+```{r warning=FALSE}
+# Plot the training/validation history of our Keras model
+plot(fit_keras) +
+    theme_tq() +
+    scale_color_tq() +
+    scale_fill_tq() +
+    labs(title = "Deep Learning Training Results")
+```
+
+MAKING PREDICTIONS
+```{r warning=FALSE}
+# Predicted Class
+yhat_keras_class_vec <- predict_classes(object = model_keras, x = as.matrix(x_test_tbl)) %>%
+    as.vector()
+
+# Predicted Class Probability
+yhat_keras_prob_vec  <- predict_proba(object = model_keras, x = as.matrix(x_test_tbl)) %>%
+    as.vector()
+```
+
+INSPECT PERFORMANCE WITH YARDSTICK
+```{r warning=FALSE}
+# Format test data and predictions for yardstick metrics
+estimates_keras_tbl <- tibble(
+    truth      = as.factor(y_test_vec) %>% fct_recode(yes = "1", no = "0"),
+    estimate   = as.factor(yhat_keras_class_vec) %>% fct_recode(yes = "1", no = "0"),
+    class_prob = yhat_keras_prob_vec
+)
+
+estimates_keras_tbl
+```
+
+```{r warning=FALSE}
+options(yardstick.event_first = FALSE)
+```
+
+Check performance using confusion matrix, accuracy, AUC, precision, recall and F1 score.
+```{r warning=FALSE}
+# Confusion Table
+estimates_keras_tbl %>% conf_mat(truth, estimate)
+# Accuracy
+estimates_keras_tbl %>% metrics(truth, estimate)
+# AUC
+estimates_keras_tbl %>% roc_auc(truth, class_prob)
+# Precision
+tibble(
+    precision = estimates_keras_tbl %>% precision(truth, estimate),
+    recall    = estimates_keras_tbl %>% recall(truth, estimate)
+)
+
+```
+```{r warning=FALSE}
+# F1-Statistic
+estimates_keras_tbl %>% f_meas(truth, estimate, beta = 1)
+```
+
+EXPLAIN THE MODEL WITH LIME: LIME stands for Local Interpretable Model-agnostic Explanations, and is a method for explaining black-box machine learning model classifiers. 
+```{r warning=FALSE}
+# identify the class of our model object
+class(model_keras)
+```
+```{r warning=FALSE}
+# Setup lime::model_type() function for keras
+model_type.keras.models.Sequential <- function(x, ...) {
+    return("classification")
+}
+```
+
+```{r warning=FALSE}
+# Setup lime::predict_model() function for keras
+predict_model.keras.models.Sequential <- function(x, newdata, type, ...) {
+    pred <- predict_proba(object = x, x = as.matrix(newdata))
+    return(data.frame(Yes = pred, No = 1 - pred))
+}
+
+# Test our predict_model() function
+predict_model(x = model_keras, newdata = x_test_tbl, type = 'raw') %>%
+    tibble::as_tibble()
+```
+
+Create an explainer using the lime() function
+```{r fig.height=700, fig.width=500, warning=FALSE}
+# Run lime() on training set
+explainer <- lime::lime(
+    x              = x_train_tbl, 
+    model          = model_keras, 
+    bin_continuous = FALSE)
+
+# Run explain() on explainer
+explanation <- lime::explain(
+    x_test_tbl[1:10,], # just the first ten rows of the test data set
+    explainer    = explainer, 
+    n_labels     = 1, 
+    n_features   = 4,
+    kernel_width = 0.5)
+
+```
+
+
+```{r warning=FALSE}
+plot_features(explanation) +
+    labs(title = "LIME Feature Importance Visualization",
+         subtitle = "Hold Out (Test) Set, First 10 Cases Shown")
+```
+this feature importance plot. This allows us to visualize each of the first ten cases (observations) from the test data. The top four features for each case are shown. Note that they are not the same for each case. The green bars mean that the feature supports the model conclusion, and the red bars contradict. A few important features based on frequency in first ten cases:
+
+Tenure (7 cases)
+Senior Citizen (5 cases)
+Online Security (4 cases)
+
+
+```{r warning=FALSE}
+plot_explanations(explanation) +
+    labs(title = "LIME Feature Importance Heatmap",
+         subtitle = "Hold Out (Test) Set, First 10 Cases Shown")
+```
+using plot_explanations(), which produces a facetted heatmap of all case/label/feature combinations.
+
+CHECK EXPLANATIONS WITH CORRELATION ANALYSIS
+```{r}
+# Feature correlations to Churn
+corrr_analysis <- x_train_tbl %>%
+    mutate(Churn = y_train_vec) %>%
+    correlate() %>%
+    focus(Churn) %>%
+    rename(feature = rowname) %>%
+    arrange(abs(Churn)) %>%
+    mutate(feature = as_factor(feature)) 
+corrr_analysis
+```
+
+```{r warning=FALSE}
+# Correlation visualization
+corrr_analysis %>%
+    ggplot(aes(x = Churn, y = fct_reorder(feature, desc(Churn)))) +
+    geom_point() +
+    # Positive Correlations - Contribute to churn
+    geom_segment(aes(xend = 0, yend = feature), 
+                 color = palette_light()[[2]], 
+                 data = corrr_analysis %>% filter(Churn > 0)) +
+    geom_point(color = palette_light()[[2]], 
+               data = corrr_analysis %>% filter(Churn > 0)) +
+    # Negative Correlations - Prevent churn
+    geom_segment(aes(xend = 0, yend = feature), 
+                 color = palette_light()[[1]], 
+                 data = corrr_analysis %>% filter(Churn < 0)) +
+    geom_point(color = palette_light()[[1]], 
+               data = corrr_analysis %>% filter(Churn < 0)) +
+    # Vertical lines
+    geom_vline(xintercept = 0, color = palette_light()[[5]], size = 1, linetype = 2) +
+    geom_vline(xintercept = -0.25, color = palette_light()[[5]], size = 1, linetype = 2) +
+    geom_vline(xintercept = 0.25, color = palette_light()[[5]], size = 1, linetype = 2) +
+    # Aesthetics
+    theme_tq() +
+    labs(title = "Churn Correlation Analysis",
+         subtitle = "Positive Correlations (contribute to churn), Negative Correlations (prevent churn)",
+         y = "Feature Importance")
+```
+
+From the analysis, we can see that:
+
+decreases Likelihood of Churn (red):
+
+Tenure = Bin 1 (<12 Months)
+Internet Service = "Fiber Optic"
+Payment Method = "Electronic Check"
+
+Increases Likelihood of Churn (Blue):
+
+Contract = "Two Year"
+Total Charges (Note that this may be a biproduct of additional services such as Online Security)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
